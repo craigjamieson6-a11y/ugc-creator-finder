@@ -57,6 +57,7 @@ export default function SearchFilters({ onSearch, loading }: Props) {
   const [gender, setGender] = useState("female");
   const [ageMin, setAgeMin] = useState(40);
   const [ageMax, setAgeMax] = useState(60);
+  const [excludeSeen, setExcludeSeen] = useState(false);
 
   const handleSearch = (deepSearch = false) => {
     onSearch({
@@ -70,6 +71,7 @@ export default function SearchFilters({ onSearch, loading }: Props) {
       age_max: ageMax,
       country: country || undefined,
       page_size: 100,
+      exclude_seen: excludeSeen || undefined,
       deep_search: deepSearch || undefined,
     });
   };
@@ -235,6 +237,16 @@ export default function SearchFilters({ onSearch, loading }: Props) {
           ))}
         </select>
       </div>
+
+      <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={excludeSeen}
+          onChange={(e) => setExcludeSeen(e.target.checked)}
+          className="rounded border-gray-300"
+        />
+        Exclude previously seen creators
+      </label>
 
       <button
         onClick={() => handleSearch(false)}

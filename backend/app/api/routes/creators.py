@@ -349,6 +349,7 @@ async def search_creators(
     sort_by: str = Query("overall_score", description="Sort field"),
     page: int = Query(0, ge=0),
     page_size: int = Query(20, ge=1, le=500),
+    exclude_seen: bool = Query(False, description="Exclude previously seen creators (de-duplication)"),
     deep_search: bool = Query(False, description="Enable exhaustive multi-query paginated search"),
     db: AsyncSession = Depends(get_db),
 ):
@@ -384,23 +385,21 @@ async def search_creators(
             )
             creators.extend(backstage_creators)
 
-    # --- De-duplication: remove previously seen creators ---
-    seen_result = await db.execute(select(SeenCreator.external_id))
-    seen_ids = {row[0] for row in seen_result.fetchall()}
+    # --- De-duplication: only when exclude_seen is enabled ---
+    if exclude_seen:
+        seen_result = await db.execute(select(SeenCreator.external_id))
+        seen_ids = {row[0] for row in seen_result.fetchall()}
+        creators = [c for c in creators if c.get("external_id") not in seen_ids]
 
-    new_creators = [c for c in creators if c.get("external_id") not in seen_ids]
-
-    # Mark new creators as seen
-    for c in new_creators:
-        ext_id = c.get("external_id")
-        if ext_id and ext_id not in seen_ids:
-            db.add(SeenCreator(
-                external_id=ext_id,
-                platform=c.get("platform", ""),
-            ))
-            seen_ids.add(ext_id)
-
-    creators = new_creators
+        # Mark new creators as seen
+        for c in creators:
+            ext_id = c.get("external_id")
+            if ext_id and ext_id not in seen_ids:
+                db.add(SeenCreator(
+                    external_id=ext_id,
+                    platform=c.get("platform", ""),
+                ))
+                seen_ids.add(ext_id)
 
     # --- Filter by gender ---
     if gender:

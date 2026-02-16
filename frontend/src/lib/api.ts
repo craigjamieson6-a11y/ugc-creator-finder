@@ -52,6 +52,7 @@ export interface SearchParams {
   sort_by?: string;
   page?: number;
   page_size?: number;
+  exclude_seen?: boolean;
   deep_search?: boolean;
 }
 
