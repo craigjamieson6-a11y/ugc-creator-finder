@@ -429,19 +429,16 @@ async def search_creators(
         raw_creators = data.get("creators", [])
         creators = [_parse_phyllo_creator(c, niche) for c in raw_creators]
 
-    # Filter by gender first (for live scrapers, require confirmed gender)
+    # Filter by gender: exclude creators with a *confirmed* non-matching
+    # gender, but keep creators with unknown gender (None).  TikTok search
+    # doesn't expose bios, so most scraped creators have gender=None — we
+    # shouldn't discard them just because we couldn't detect gender.
     if gender:
-        if is_live_scraper:
-            creators = [
-                c for c in creators
-                if (c.get("gender") or "").lower() == gender.lower()
-            ]
-        else:
-            creators = [
-                c for c in creators
-                if c.get("gender") is None
-                or (c.get("gender") or "").lower() == gender.lower()
-            ]
+        creators = [
+            c for c in creators
+            if c.get("gender") is None
+            or (c.get("gender") or "").lower() == gender.lower()
+        ]
 
     # Filter by age range
     filtered = []
