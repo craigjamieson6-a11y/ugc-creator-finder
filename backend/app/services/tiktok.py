@@ -314,7 +314,15 @@ class TikTokService:
         internal_cap = max_results if not deep_search else 500
 
         if query:
-            queries = [query]
+            # Generate multiple targeted queries from keywords
+            terms = [t.strip() for t in query.split(",") if t.strip()]
+            queries = []
+            for term in terms:
+                queries.append(f"{term} creator")
+                queries.append(f"{term} review")
+                queries.append(f"{term} UGC")
+            # Also add the raw terms as-is
+            queries.extend(terms)
         else:
             queries = list(UGC_SEARCH_QUERIES)
             if niche:

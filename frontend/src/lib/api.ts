@@ -42,6 +42,7 @@ export interface Campaign {
 export interface SearchParams {
   platform?: string;
   niche?: string;
+  keywords?: string;
   min_followers?: number;
   max_followers?: number;
   min_engagement?: number;

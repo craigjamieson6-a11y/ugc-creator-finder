@@ -49,6 +49,7 @@ interface Props {
 
 export default function SearchFilters({ onSearch, loading }: Props) {
   const [platform, setPlatform] = useState("tiktok");
+  const [keywords, setKeywords] = useState("");
   const [niche, setNiche] = useState("");
   const [minFollowers, setMinFollowers] = useState(1000);
   const [minEngagement, setMinEngagement] = useState(0);
@@ -63,6 +64,7 @@ export default function SearchFilters({ onSearch, loading }: Props) {
   const handleSearch = (deepSearch = false) => {
     onSearch({
       platform,
+      keywords: keywords || undefined,
       niche: niche || undefined,
       min_followers: minFollowers,
       min_engagement: minEngagement,
@@ -107,6 +109,22 @@ export default function SearchFilters({ onSearch, loading }: Props) {
             </button>
           ))}
         </div>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Keywords
+        </label>
+        <input
+          type="text"
+          value={keywords}
+          onChange={(e) => setKeywords(e.target.value)}
+          placeholder="e.g. leakproof underwear, period underwear, postpartum"
+          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+        />
+        <p className="text-xs text-gray-400 mt-1">
+          Targeted search terms for your specific niche
+        </p>
       </div>
 
       <div className="grid grid-cols-2 gap-3">

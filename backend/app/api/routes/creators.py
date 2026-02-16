@@ -109,9 +109,11 @@ async def _search_twitter(
     min_followers: int,
     page_size: int,
     deep_search: bool = False,
+    keyword_query: Optional[str] = None,
 ) -> list[dict]:
     """Search Twitter and parse results into standardized creator dicts."""
     raw_creators = await twitter.search_creators(
+        query=keyword_query,
         niche=niche,
         min_followers=min_followers,
         max_results=page_size,
@@ -168,9 +170,11 @@ async def _search_tiktok(
     min_followers: int,
     page_size: int,
     deep_search: bool = False,
+    keyword_query: Optional[str] = None,
 ) -> list[dict]:
     """Search TikTok and parse results into standardized creator dicts."""
     raw_creators = await tiktok.search_creators(
+        query=keyword_query,
         niche=niche,
         min_followers=min_followers,
         max_results=page_size,
@@ -341,6 +345,7 @@ async def get_database(
 async def search_creators(
     platform: str = Query("tiktok", description="Platform to search"),
     niche: Optional[str] = Query(None, description="Niche/category filter"),
+    keywords: Optional[str] = Query(None, description="Custom search keywords for targeted niche search"),
     min_followers: int = Query(1000, description="Minimum follower count"),
     max_followers: Optional[int] = Query(None, description="Maximum follower count"),
     min_engagement: float = Query(0.0, description="Minimum engagement rate"),
@@ -358,13 +363,18 @@ async def search_creators(
 ):
     creators = []
 
+    # Build keyword-based queries for platform services
+    keyword_query = None
+    if keywords:
+        keyword_query = keywords.strip()
+
     if platform.lower() == "twitter":
-        creators = await _search_twitter(niche, min_followers, page_size, deep_search)
+        creators = await _search_twitter(niche, min_followers, page_size, deep_search, keyword_query)
         creators = await _enrich_with_cross_platform(creators)
 
     elif platform.lower() == "tiktok":
         if tiktok._is_configured():
-            creators = await _search_tiktok(niche, min_followers, page_size, deep_search)
+            creators = await _search_tiktok(niche, min_followers, page_size, deep_search, keyword_query)
 
     elif platform.lower() == "backstage":
         if backstage._is_configured():
@@ -374,10 +384,10 @@ async def search_creators(
 
     elif platform.lower() == "all":
         # Search all platforms in parallel
-        tasks = [_search_twitter(niche, min_followers, page_size, deep_search)]
+        tasks = [_search_twitter(niche, min_followers, page_size, deep_search, keyword_query)]
 
         if tiktok._is_configured():
-            tasks.append(_search_tiktok(niche, min_followers, page_size, deep_search))
+            tasks.append(_search_tiktok(niche, min_followers, page_size, deep_search, keyword_query))
 
         if backstage._is_configured():
             tasks.append(_search_backstage(
@@ -391,6 +401,22 @@ async def search_creators(
                 logging.getLogger(__name__).warning("Platform search failed: %s", result)
                 continue
             creators.extend(result)
+
+    # --- Also search existing DB creators by keywords ---
+    if keyword_query:
+        kw_terms = [t.strip().lower() for t in keyword_query.split(",") if t.strip()]
+        db_query = select(Creator)
+        for term in kw_terms:
+            db_query = db_query.where(Creator.bio.ilike(f"%{term}%"))
+        db_result = await db.execute(db_query.limit(200))
+        db_creators = db_result.scalars().all()
+
+        # Merge DB matches (avoid duplicates by external_id)
+        live_ids = {c.get("external_id") for c in creators}
+        for c in db_creators:
+            if c.external_id not in live_ids:
+                live_ids.add(c.external_id)
+                creators.append(_creator_to_dict(c))
 
     # --- De-duplication: only when exclude_seen is enabled ---
     if exclude_seen:

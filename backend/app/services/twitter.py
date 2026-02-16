@@ -146,7 +146,13 @@ class TwitterService:
         internal_cap = max_results if not deep_search else 500
 
         if query:
-            queries = [query]
+            # Generate multiple Twitter API queries from keywords
+            terms = [t.strip() for t in query.split(",") if t.strip()]
+            queries = []
+            for term in terms:
+                queries.append(f'"{term}" creator -is:retweet')
+                queries.append(f'"{term}" review -is:retweet')
+                queries.append(f'"{term}" UGC -is:retweet')
         else:
             queries = list(UGC_SEARCH_QUERIES)
             if niche:
@@ -226,7 +232,14 @@ class TwitterService:
         internal_cap = max_results if not deep_search else 200
 
         if query:
-            queries = [query]
+            # Generate multiple Nitter queries from keywords
+            terms = [t.strip() for t in query.split(",") if t.strip()]
+            queries = []
+            for term in terms:
+                queries.append(f"{term} creator")
+                queries.append(f"{term} review")
+                queries.append(f"{term} UGC")
+            queries.extend(terms)
         else:
             queries = list(NITTER_SEARCH_QUERIES)
             if niche:
