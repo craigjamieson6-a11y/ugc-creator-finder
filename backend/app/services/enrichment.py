@@ -20,6 +20,13 @@ COMMON_FEMALE_NAMES = {
     "brooke", "dawn", "stacey", "tiffany", "crystal", "robin", "shannon",
     "tamara", "colleen", "leslie", "jenn", "jen", "liz", "sue", "becky",
     "steph", "nikki", "manda", "missy",
+    # International / variant spellings common on social media
+    "natalia", "natalya", "marina", "nastya", "anastasia", "yordanka",
+    "jamie", "ang", "angela", "jess", "jessica", "peggy", "megan",
+    "sophia", "elena", "olga", "irina", "tatiana", "svetlana",
+    "lucia", "valeria", "gabriela", "camila", "daniela", "alejandra",
+    "sara", "emma", "isla", "olivia", "chloe", "ellie", "millie",
+    "priya", "ananya", "aisha", "fatima", "maya", "noor", "hana",
 }
 
 
@@ -146,7 +153,8 @@ class EnrichmentService:
 
         # Fallback: check if first name is a common female name
         if name:
-            first_name = name.strip().split()[0].lower() if name.strip() else ""
+            # Split on whitespace, pipes, slashes, dashes to isolate the first name
+            first_name = re.split(r"[\s|/\-]+", name.strip())[0].lower()
             if first_name in COMMON_FEMALE_NAMES:
                 return "female", "low"
 
