@@ -152,10 +152,10 @@ class TwitterService:
             if niche:
                 queries.append(f'("{niche} creator" OR "{niche} UGC") (mom OR woman OR "over 40") -is:retweet')
 
-            # For normal search, limit to first 7 queries (Tier 1 broad)
+            # For normal search, limit to first 5 queries (Tier 1 broad)
             # Deep search uses all queries for maximum coverage
             if not deep_search:
-                queries = queries[:7]
+                queries = queries[:5]
 
         seen_ids = set()
         all_creators = []
@@ -164,7 +164,7 @@ class TwitterService:
             if len(all_creators) >= internal_cap:
                 break
 
-            max_pages = 10 if deep_search else 2
+            max_pages = 10 if deep_search else 1
             next_token = None
 
             for _page in range(max_pages):

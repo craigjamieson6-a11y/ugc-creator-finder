@@ -72,7 +72,7 @@ export default function SearchFilters({ onSearch, loading }: Props) {
       age_max: ageMax,
       country: country || undefined,
       strict_demo: strictDemo || undefined,
-      page_size: 100,
+      page_size: deepSearch ? 200 : 50,
       exclude_seen: excludeSeen || undefined,
       deep_search: deepSearch || undefined,
     });
