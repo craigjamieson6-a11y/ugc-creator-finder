@@ -296,11 +296,20 @@ class TikTokService:
             return []
 
         # Probe TikTok with a single quick request first.
-        # If it fails (page won't load, CAPTCHA, etc.), bail out immediately
-        # so the route can fall back to Modash without a multi-minute wait.
+        # If it fails, reset the browser context and try once more.
         probe_users, _, _ = await self._run_user_search("UGC creator", cursor=0)
         if not probe_users:
-            return []
+            # Context may be stale — reset and retry once
+            logger.info("TikTok probe failed, resetting browser context and retrying")
+            if self._context:
+                try:
+                    await self._context.close()
+                except Exception:
+                    pass
+                self._context = None
+            probe_users, _, _ = await self._run_user_search("UGC creator", cursor=0)
+            if not probe_users:
+                return []
 
         internal_cap = max_results if not deep_search else 500
 

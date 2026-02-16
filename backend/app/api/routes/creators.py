@@ -346,6 +346,7 @@ async def search_creators(
     age_min: int = Query(40, description="Minimum age"),
     age_max: int = Query(60, description="Maximum age"),
     country: Optional[str] = Query(None, description="Country filter (US, UK, CA, AU, DE, etc.)"),
+    strict_demo: bool = Query(False, description="Only include creators with confirmed age/gender"),
     sort_by: str = Query("overall_score", description="Sort field"),
     page: int = Query(0, ge=0),
     page_size: int = Query(20, ge=1, le=500),
@@ -403,11 +404,19 @@ async def search_creators(
 
     # --- Filter by gender ---
     if gender:
-        creators = [
-            c for c in creators
-            if c.get("gender") is None
-            or (c.get("gender") or "").lower() == gender.lower()
-        ]
+        if strict_demo:
+            # Strict: only include confirmed matching gender
+            creators = [
+                c for c in creators
+                if (c.get("gender") or "").lower() == gender.lower()
+            ]
+        else:
+            # Lenient: include unknown gender (don't discard undetected)
+            creators = [
+                c for c in creators
+                if c.get("gender") is None
+                or (c.get("gender") or "").lower() == gender.lower()
+            ]
 
     # --- Filter by age range ---
     filtered = []
@@ -423,7 +432,9 @@ async def search_creators(
             except (ValueError, IndexError):
                 filtered.append(c)
         else:
-            filtered.append(c)
+            # No age data: include only in lenient mode
+            if not strict_demo:
+                filtered.append(c)
 
     # --- Filter by country ---
     if country:

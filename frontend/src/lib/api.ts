@@ -49,6 +49,7 @@ export interface SearchParams {
   age_min?: number;
   age_max?: number;
   country?: string;
+  strict_demo?: boolean;
   sort_by?: string;
   page?: number;
   page_size?: number;

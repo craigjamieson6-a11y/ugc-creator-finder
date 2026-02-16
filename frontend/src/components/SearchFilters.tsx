@@ -58,6 +58,7 @@ export default function SearchFilters({ onSearch, loading }: Props) {
   const [ageMin, setAgeMin] = useState(40);
   const [ageMax, setAgeMax] = useState(60);
   const [excludeSeen, setExcludeSeen] = useState(false);
+  const [strictDemo, setStrictDemo] = useState(false);
 
   const handleSearch = (deepSearch = false) => {
     onSearch({
@@ -70,6 +71,7 @@ export default function SearchFilters({ onSearch, loading }: Props) {
       age_min: ageMin,
       age_max: ageMax,
       country: country || undefined,
+      strict_demo: strictDemo || undefined,
       page_size: 100,
       exclude_seen: excludeSeen || undefined,
       deep_search: deepSearch || undefined,
@@ -237,6 +239,16 @@ export default function SearchFilters({ onSearch, loading }: Props) {
           ))}
         </select>
       </div>
+
+      <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={strictDemo}
+          onChange={(e) => setStrictDemo(e.target.checked)}
+          className="rounded border-gray-300"
+        />
+        Only confirmed age/gender matches
+      </label>
 
       <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
         <input
