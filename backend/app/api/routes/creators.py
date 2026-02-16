@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete
@@ -371,20 +373,24 @@ async def search_creators(
             )
 
     elif platform.lower() == "all":
-        # Search all three platforms concurrently
-        twitter_creators = await _search_twitter(niche, min_followers, page_size, deep_search)
-        twitter_creators = await _enrich_with_cross_platform(twitter_creators)
-        creators.extend(twitter_creators)
+        # Search all platforms in parallel
+        tasks = [_search_twitter(niche, min_followers, page_size, deep_search)]
 
         if tiktok._is_configured():
-            tiktok_creators = await _search_tiktok(niche, min_followers, page_size, deep_search)
-            creators.extend(tiktok_creators)
+            tasks.append(_search_tiktok(niche, min_followers, page_size, deep_search))
 
         if backstage._is_configured():
-            backstage_creators = await _search_backstage(
+            tasks.append(_search_backstage(
                 niche, gender, age_min, age_max, country, page_size, deep_search,
-            )
-            creators.extend(backstage_creators)
+            ))
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                import logging
+                logging.getLogger(__name__).warning("Platform search failed: %s", result)
+                continue
+            creators.extend(result)
 
     # --- De-duplication: only when exclude_seen is enabled ---
     if exclude_seen:

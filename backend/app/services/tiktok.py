@@ -321,6 +321,11 @@ class TikTokService:
                 queries.append(f"{niche} UGC creator")
                 queries.append(f"{niche} content creator mom")
 
+            # For normal search, limit to first 5 queries (Tier 1 broad)
+            # Deep search uses all queries for maximum coverage
+            if not deep_search:
+                queries = queries[:5]
+
         seen_ids: set[str] = set()
         all_creators: list[dict] = []
 
@@ -361,17 +366,16 @@ class TikTokService:
                         },
                     })
 
-        for search_query in queries:
-            if len(all_creators) >= internal_cap:
-                break
+        # Run queries in concurrent batches for speed
+        batch_size = 3 if not deep_search else 2
 
-            max_pages = 8 if deep_search else 2
+        async def _run_query(search_query: str) -> list[dict]:
+            """Run a single query with pagination, return creator list."""
+            results = []
+            max_pages = 8 if deep_search else 1
             cursor = 0
 
             for _page in range(max_pages):
-                if len(all_creators) >= internal_cap:
-                    break
-
                 users, next_cursor, has_more = await self._run_user_search(
                     search_query, cursor=cursor,
                 )
@@ -381,24 +385,20 @@ class TikTokService:
                     stats = user_entry.get("stats", {})
                     uid = user_info.get("uid", "")
 
-                    if not uid or uid in seen_ids:
+                    if not uid:
                         continue
-                    seen_ids.add(uid)
 
                     bio = user_info.get("signature", "")
                     followers = stats.get("follower_count", 0)
                     username = user_info.get("unique_id", "")
                     name = user_info.get("nickname", "")
 
-                    # Score how "UGC-like" this user is
                     bio_lower = bio.lower()
                     bio_score = sum(1 for kw in UGC_BIO_KEYWORDS if kw in bio_lower)
 
-                    # Skip obvious non-creators
                     if bio_score == 0 and followers > 500000:
                         continue
 
-                    # Extract avatar URL
                     avatar = ""
                     avatar_obj = user_info.get("avatar_larger", {})
                     if isinstance(avatar_obj, dict):
@@ -407,7 +407,7 @@ class TikTokService:
                     elif isinstance(avatar_obj, str):
                         avatar = avatar_obj
 
-                    all_creators.append({
+                    results.append({
                         "userId": f"tiktok_{uid}",
                         "profile": {
                             "fullname": name,
@@ -426,9 +426,30 @@ class TikTokService:
                 if not has_more or next_cursor is None:
                     break
                 cursor = next_cursor
+                await asyncio.sleep(random.uniform(0.5, 1.5))
 
-                # Anti-bot: random delay between pages
-                await asyncio.sleep(random.uniform(1.0, 3.0))
+            return results
+
+        # Process queries in batches
+        for i in range(0, len(queries), batch_size):
+            if len(all_creators) >= internal_cap:
+                break
+
+            batch = queries[i:i + batch_size]
+            batch_results = await asyncio.gather(
+                *[_run_query(q) for q in batch],
+                return_exceptions=True,
+            )
+
+            for result in batch_results:
+                if isinstance(result, Exception):
+                    logger.warning("TikTok query failed: %s", result)
+                    continue
+                for creator in result:
+                    uid = creator["userId"]
+                    if uid not in seen_ids:
+                        seen_ids.add(uid)
+                        all_creators.append(creator)
 
         return all_creators[:internal_cap]
 
@@ -465,14 +486,13 @@ class TikTokService:
                 return [], None, False
 
             # Let the page settle after initial render
-            await asyncio.sleep(2.0)
+            await asyncio.sleep(1.0)
 
-            # Scroll down to load more results.
-            # More scrolls for higher cursor values (pagination simulation).
-            scroll_count = min(2 + cursor * 2, 8)
+            # Scroll down to load more results
+            scroll_count = min(2 + cursor, 4)
             for _ in range(scroll_count):
                 await page.evaluate("window.scrollBy(0, document.body.scrollHeight)")
-                await asyncio.sleep(1.0)
+                await asyncio.sleep(0.5)
 
             # Extract user data from rendered DOM
             raw_users = await page.evaluate(_EXTRACT_USERS_JS)

@@ -99,6 +99,8 @@ class TwitterService:
         self._nitter_playwright = None
         self._nitter_browser: Optional[Browser] = None
         self._nitter_context: Optional[BrowserContext] = None
+        self._cached_nitter_instance: Optional[str] = None
+        self._nitter_cache_checked: bool = False
 
     def _is_configured(self) -> bool:
         return bool(self.bearer_token)
@@ -149,6 +151,11 @@ class TwitterService:
             queries = list(UGC_SEARCH_QUERIES)
             if niche:
                 queries.append(f'("{niche} creator" OR "{niche} UGC") (mom OR woman OR "over 40") -is:retweet')
+
+            # For normal search, limit to first 7 queries (Tier 1 broad)
+            # Deep search uses all queries for maximum coverage
+            if not deep_search:
+                queries = queries[:7]
 
         seen_ids = set()
         all_creators = []
@@ -226,6 +233,10 @@ class TwitterService:
                 queries.append(f"{niche} creator")
                 queries.append(f"{niche} UGC review")
 
+            # For normal search, limit queries
+            if not deep_search:
+                queries = queries[:6]
+
         seen_usernames: set[str] = set()
         all_creators: list[dict] = []
 
@@ -298,16 +309,28 @@ class TwitterService:
         return self._nitter_context
 
     async def _find_working_nitter(self) -> Optional[str]:
-        """Check known Nitter instances and return the first that responds."""
-        for instance in NITTER_INSTANCES:
+        """Check known Nitter instances concurrently and return the first that responds.
+
+        Caches the result so subsequent calls don't re-check.
+        """
+        if self._nitter_cache_checked:
+            return self._cached_nitter_instance
+
+        async def _check(instance: str) -> Optional[str]:
             try:
                 async with httpx.AsyncClient() as client:
                     resp = await client.get(instance, timeout=5, follow_redirects=True)
                     if resp.status_code < 400:
                         return instance
             except Exception:
-                continue
-        return None
+                return None
+
+        results = await asyncio.gather(*[_check(inst) for inst in NITTER_INSTANCES])
+        working = [r for r in results if r is not None]
+
+        self._nitter_cache_checked = True
+        self._cached_nitter_instance = working[0] if working else None
+        return self._cached_nitter_instance
 
     async def _scrape_nitter_search(self, nitter_base: str, search_query: str) -> list[dict]:
         """Scrape a Nitter search page for user profiles."""
