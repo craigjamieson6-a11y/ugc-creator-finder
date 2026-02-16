@@ -10,7 +10,21 @@ PLATFORM_AVG_ENGAGEMENT = {
     "facebook": 1.5,
     "pinterest": 2.5,
     "twitter": 1.5,
+    "backstage": 2.0,
 }
+
+# Niche-specific keywords for leakproof underwear relevance
+NICHE_KEYWORDS = [
+    "leakproof", "leak proof", "leak-proof",
+    "period", "period underwear", "period panties",
+    "incontinence", "bladder",
+    "pelvic floor", "pelvic health",
+    "postpartum", "post-partum", "post partum",
+    "menopause", "perimenopause", "menstrual",
+    "feminine", "feminine hygiene", "feminine care",
+    "underwear", "intimates", "intimate",
+    "women's health", "womens health",
+]
 
 
 class ScoringService:
@@ -90,7 +104,7 @@ class ScoringService:
         score = 0.0
         niche_tags = niche_tags or []
 
-        # Bio keyword matching
+        # Bio keyword matching (general UGC relevance)
         bio_lower = bio.lower() if bio else ""
         relevance_keywords = [
             "ugc", "creator", "content creator", "review", "unboxing",
@@ -98,7 +112,11 @@ class ScoringService:
             "women", "lifestyle", "over 40", "over 50", "midlife",
         ]
         keyword_matches = sum(1 for kw in relevance_keywords if kw in bio_lower)
-        score += min(30, keyword_matches * 6)
+        score += min(20, keyword_matches * 4)
+
+        # Niche-specific keyword matching (leakproof underwear niche)
+        niche_matches = sum(1 for kw in NICHE_KEYWORDS if kw in bio_lower)
+        score += min(15, niche_matches * 5)
 
         # Niche tag matching
         if target_niche and niche_tags:
@@ -126,7 +144,7 @@ class ScoringService:
                         target_weight += weight
                 except (ValueError, IndexError):
                     continue
-            score += min(35, target_weight * 70)
+            score += min(30, target_weight * 60)
 
         return round(min(100, max(0, score)), 1)
 
@@ -142,3 +160,26 @@ class ScoringService:
             + relevance_score * self.relevance_weight
         )
         return round(overall, 1)
+
+    @staticmethod
+    def classify_tier(
+        follower_count: int,
+        post_count: int = 0,
+        engagement_rate: float = 0.0,
+    ) -> str:
+        """Classify a creator as 'established' or 'emerging'.
+
+        Established:
+        - 50K+ followers, OR
+        - 20K+ followers with 200+ posts, OR
+        - 10K+ followers with 3%+ engagement rate
+
+        Everyone else that passes minimum thresholds is Emerging.
+        """
+        if follower_count >= 50_000:
+            return "established"
+        if follower_count >= 20_000 and post_count >= 200:
+            return "established"
+        if follower_count >= 10_000 and engagement_rate >= 3.0:
+            return "established"
+        return "emerging"

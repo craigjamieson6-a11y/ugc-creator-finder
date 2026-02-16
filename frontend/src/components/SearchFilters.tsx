@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { SearchParams } from "@/lib/api";
 
-const PLATFORMS = ["instagram", "tiktok", "youtube", "facebook", "pinterest", "twitter", "all"];
+const PLATFORMS = ["tiktok", "twitter", "backstage", "all"];
 const NICHES = [
   "beauty",
   "health",
@@ -17,6 +17,22 @@ const NICHES = [
   "crafts",
   "wellness",
   "education",
+];
+const COUNTRIES = [
+  { value: "", label: "All Countries" },
+  { value: "US", label: "United States" },
+  { value: "UK", label: "United Kingdom" },
+  { value: "CA", label: "Canada" },
+  { value: "AU", label: "Australia" },
+  { value: "DE", label: "Germany" },
+  { value: "FR", label: "France" },
+  { value: "NZ", label: "New Zealand" },
+  { value: "IE", label: "Ireland" },
+];
+const GENDERS = [
+  { value: "female", label: "Female" },
+  { value: "male", label: "Male" },
+  { value: "", label: "Any" },
 ];
 const SORT_OPTIONS = [
   { value: "overall_score", label: "Overall Score" },
@@ -32,11 +48,15 @@ interface Props {
 }
 
 export default function SearchFilters({ onSearch, loading }: Props) {
-  const [platform, setPlatform] = useState("instagram");
+  const [platform, setPlatform] = useState("tiktok");
   const [niche, setNiche] = useState("");
   const [minFollowers, setMinFollowers] = useState(1000);
   const [minEngagement, setMinEngagement] = useState(0);
   const [sortBy, setSortBy] = useState("overall_score");
+  const [country, setCountry] = useState("");
+  const [gender, setGender] = useState("female");
+  const [ageMin, setAgeMin] = useState(40);
+  const [ageMax, setAgeMax] = useState(60);
 
   const handleSearch = (deepSearch = false) => {
     onSearch({
@@ -45,9 +65,10 @@ export default function SearchFilters({ onSearch, loading }: Props) {
       min_followers: minFollowers,
       min_engagement: minEngagement,
       sort_by: sortBy,
-      gender: "female",
-      age_min: 40,
-      age_max: 60,
+      gender: gender || undefined,
+      age_min: ageMin,
+      age_max: ageMax,
+      country: country || undefined,
       page_size: 100,
       deep_search: deepSearch || undefined,
     });
@@ -72,9 +93,81 @@ export default function SearchFilters({ onSearch, loading }: Props) {
                   : "bg-gray-100 text-gray-700 hover:bg-gray-200"
               }`}
             >
-              {p === "all" ? "All Platforms" : p === "twitter" ? "Twitter/X" : p}
+              {p === "all"
+                ? "All Platforms"
+                : p === "twitter"
+                ? "Twitter/X"
+                : p === "backstage"
+                ? "Backstage"
+                : p}
             </button>
           ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Gender
+          </label>
+          <select
+            value={gender}
+            onChange={(e) => setGender(e.target.value)}
+            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+          >
+            {GENDERS.map((g) => (
+              <option key={g.value} value={g.value}>
+                {g.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Country
+          </label>
+          <select
+            value={country}
+            onChange={(e) => setCountry(e.target.value)}
+            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+          >
+            {COUNTRIES.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Age Min: {ageMin}
+          </label>
+          <input
+            type="range"
+            min={18}
+            max={80}
+            step={1}
+            value={ageMin}
+            onChange={(e) => setAgeMin(Number(e.target.value))}
+            className="w-full"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Age Max: {ageMax}
+          </label>
+          <input
+            type="range"
+            min={18}
+            max={80}
+            step={1}
+            value={ageMax}
+            onChange={(e) => setAgeMax(Number(e.target.value))}
+            className="w-full"
+          />
         </div>
       </div>
 

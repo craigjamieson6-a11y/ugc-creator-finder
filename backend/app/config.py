@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     tiktok_enabled: bool = True
     tiktok_proxy_url: str = ""
 
+    backstage_enabled: bool = True
+    backstage_email: str = ""
+    backstage_password: str = ""
+
     openai_api_key: str = ""
     anthropic_api_key: str = ""
 

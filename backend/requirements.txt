@@ -13,3 +13,5 @@ greenlet>=3.0
 anthropic==0.18.1
 openai==1.12.0
 playwright>=1.40.0
+beautifulsoup4>=4.12.0
+lxml>=5.0.0

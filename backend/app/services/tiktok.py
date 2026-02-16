@@ -55,6 +55,17 @@ UGC_SEARCH_QUERIES = [
     "product review mom",
     "over 40 content creator",
     "gen x content creator",
+    # --- Tier 3: Leakproof underwear niche ---
+    "period underwear creator",
+    "leak proof underwear review",
+    "incontinence creator",
+    "pelvic floor review",
+    "postpartum mom UGC",
+    "women's health creator",
+    "#periodunderwear review",
+    "leakproof underwear try on",
+    "bladder leak underwear",
+    "postpartum underwear review",
 ]
 
 # Keywords that signal a UGC creator in their bio

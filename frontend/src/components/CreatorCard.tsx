@@ -22,6 +22,21 @@ function ScoreBadge({ score, label }: { score: number; label: string }) {
   );
 }
 
+function TierBadge({ tier }: { tier: string }) {
+  const isEstablished = tier === "established";
+  return (
+    <span
+      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+        isEstablished
+          ? "bg-green-100 text-green-800"
+          : "bg-blue-100 text-blue-800"
+      }`}
+    >
+      {isEstablished ? "Established" : "Emerging"}
+    </span>
+  );
+}
+
 export default function CreatorCard({ creator, onAddToCampaign }: Props) {
   return (
     <div className="bg-white rounded-lg shadow hover:shadow-md transition-shadow p-4">
@@ -34,12 +49,20 @@ export default function CreatorCard({ creator, onAddToCampaign }: Props) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="font-semibold text-gray-900 truncate">
-                {creator.name}
-              </h3>
+              <div className="flex items-center gap-2">
+                <h3 className="font-semibold text-gray-900 truncate">
+                  {creator.name}
+                </h3>
+                <TierBadge tier={creator.tier} />
+              </div>
               <p className="text-sm text-gray-500">
                 @{creator.handle} &middot;{" "}
                 <span className="capitalize">{creator.platform}</span>
+                {creator.country && (
+                  <span className="ml-1 text-xs text-gray-400">
+                    &middot; {creator.country}
+                  </span>
+                )}
               </p>
             </div>
             <div className="text-right">
@@ -69,22 +92,22 @@ export default function CreatorCard({ creator, onAddToCampaign }: Props) {
           </div>
 
           <div className="flex items-center gap-2 mt-3">
-            {creator.id && (
-              <a
-                href={`/creators/${creator.id}`}
-                className="text-sm text-indigo-600 hover:text-indigo-800"
-              >
-                View Details
-              </a>
-            )}
             {creator.profile_url && (
               <a
                 href={creator.profile_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-sm text-gray-500 hover:text-gray-700"
+                className="text-sm font-medium bg-indigo-600 text-white px-3 py-1 rounded hover:bg-indigo-700"
               >
-                Profile
+                View Profile
+              </a>
+            )}
+            {creator.id && (
+              <a
+                href={`/creators/${creator.id}`}
+                className="text-sm text-indigo-600 hover:text-indigo-800"
+              >
+                Details
               </a>
             )}
             {onAddToCampaign && creator.id && (

@@ -36,6 +36,18 @@ class Creator(Base):
     relevance_score = Column(Float, default=0.0)
     demographic_confidence = Column(String, default="low")  # high/medium/low
 
+    tier = Column(String, default="emerging")  # "established" or "emerging"
+    country = Column(String)  # ISO-like code or country name inferred from bio/location
+
     last_updated = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     campaign_links = relationship("CampaignCreator", back_populates="creator")
+
+
+class SeenCreator(Base):
+    __tablename__ = "seen_creators"
+
+    id = Column(Integer, primary_key=True)
+    external_id = Column(String, unique=True, index=True)
+    platform = Column(String)
+    first_seen_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

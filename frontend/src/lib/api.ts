@@ -25,6 +25,8 @@ export interface Creator {
   engagement_score: number;
   quality_score: number;
   relevance_score: number;
+  tier: string;
+  country: string | null;
   last_updated?: string;
 }
 
@@ -46,6 +48,7 @@ export interface SearchParams {
   gender?: string;
   age_min?: number;
   age_max?: number;
+  country?: string;
   sort_by?: string;
   page?: number;
   page_size?: number;
@@ -96,6 +99,10 @@ export async function getDatabase(
 
 export async function getCreator(id: number): Promise<Creator> {
   return fetchApi(`/api/creators/${id}`);
+}
+
+export async function resetSeenCreators(): Promise<{ status: string; message: string }> {
+  return fetchApi("/api/creators/reset-seen", { method: "POST" });
 }
 
 export async function listCampaigns(): Promise<Campaign[]> {

@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import SearchFilters from "@/components/SearchFilters";
 import CreatorCard from "@/components/CreatorCard";
 import CreatorTable from "@/components/CreatorTable";
-import { searchCreators, addCreatorToCampaign, listCampaigns, getDatabase } from "@/lib/api";
+import { searchCreators, addCreatorToCampaign, listCampaigns, getDatabase, resetSeenCreators } from "@/lib/api";
 import type { Creator, SearchParams, Campaign } from "@/lib/api";
 
 export default function Home() {
@@ -21,12 +21,29 @@ export default function Home() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [selectedCreator, setSelectedCreator] = useState<Creator | null>(null);
 
+  // Reset confirmation state
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+
   // Fetch DB total on mount
   useEffect(() => {
     getDatabase({ page_size: 1 })
       .then((data) => setDbTotal(data.db_total))
       .catch(() => {});
   }, []);
+
+  // Split creators by tier
+  const { established, emerging } = useMemo(() => {
+    const established: Creator[] = [];
+    const emerging: Creator[] = [];
+    for (const c of creators) {
+      if (c.tier === "established") {
+        established.push(c);
+      } else {
+        emerging.push(c);
+      }
+    }
+    return { established, emerging };
+  }, [creators]);
 
   const handleSearch = useCallback(async (params: SearchParams) => {
     setLoading(true);
@@ -69,6 +86,46 @@ export default function Home() {
     [selectedCreator]
   );
 
+  const handleResetSeen = useCallback(async () => {
+    try {
+      await resetSeenCreators();
+      setShowResetConfirm(false);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to reset");
+    }
+  }, []);
+
+  const renderCreatorSection = (sectionCreators: Creator[], title: string, badgeColor: string) => {
+    if (sectionCreators.length === 0) return null;
+
+    return (
+      <div className="mb-8">
+        <div className="flex items-center gap-2 mb-3">
+          <h2 className="text-lg font-semibold text-gray-800">{title}</h2>
+          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${badgeColor}`}>
+            {sectionCreators.length}
+          </span>
+        </div>
+        {view === "cards" ? (
+          <div className="space-y-4">
+            {sectionCreators.map((c, i) => (
+              <CreatorCard
+                key={c.external_id || i}
+                creator={c}
+                onAddToCampaign={handleAddToCampaign}
+              />
+            ))}
+          </div>
+        ) : (
+          <CreatorTable
+            creators={sectionCreators}
+            onAddToCampaign={handleAddToCampaign}
+          />
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="flex gap-6">
       <aside className="w-72 flex-shrink-0">
@@ -80,6 +137,13 @@ export default function Home() {
             <p className="text-xs text-indigo-500">creators in database</p>
           </div>
         )}
+
+        <button
+          onClick={() => setShowResetConfirm(true)}
+          className="mt-3 w-full text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg py-2 hover:bg-red-100"
+        >
+          Reset Seen Creators
+        </button>
       </aside>
 
       <section className="flex-1">
@@ -87,7 +151,7 @@ export default function Home() {
           <div>
             <h1 className="text-2xl font-bold">UGC Creator Search</h1>
             <p className="text-gray-500 text-sm">
-              Find women creators aged 40-60 across social platforms
+              Find creators across social platforms
             </p>
           </div>
           {searched && (
@@ -137,24 +201,15 @@ export default function Home() {
           </div>
         )}
 
-        {view === "cards" ? (
-          <div className="space-y-4">
-            {creators.map((c, i) => (
-              <CreatorCard
-                key={c.external_id || i}
-                creator={c}
-                onAddToCampaign={handleAddToCampaign}
-              />
-            ))}
-          </div>
-        ) : (
-          <CreatorTable
-            creators={creators}
-            onAddToCampaign={handleAddToCampaign}
-          />
+        {searched && creators.length > 0 && (
+          <>
+            {renderCreatorSection(established, "Established Creators", "bg-green-100 text-green-800")}
+            {renderCreatorSection(emerging, "Emerging Creators", "bg-blue-100 text-blue-800")}
+          </>
         )}
       </section>
 
+      {/* Campaign Modal */}
       {showCampaignModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl p-6 w-96">
@@ -187,6 +242,35 @@ export default function Home() {
             >
               Cancel
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Reset Seen Confirmation Modal */}
+      {showResetConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-96">
+            <h3 className="text-lg font-semibold mb-2">
+              Reset Seen Creators?
+            </h3>
+            <p className="text-sm text-gray-500 mb-4">
+              This will clear the de-duplication history. Previously seen creators
+              will appear again in future searches.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={handleResetSeen}
+                className="flex-1 bg-red-600 text-white py-2 rounded-md hover:bg-red-700 text-sm font-medium"
+              >
+                Reset
+              </button>
+              <button
+                onClick={() => setShowResetConfirm(false)}
+                className="flex-1 bg-gray-100 text-gray-700 py-2 rounded-md hover:bg-gray-200 text-sm"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}
