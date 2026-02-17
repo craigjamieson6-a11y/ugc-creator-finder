@@ -514,6 +514,8 @@ class TikTokService:
 
         if not deep_search:
             queries = queries[:8]
+        else:
+            queries = queries[:20]
 
         seen_ids: set[str] = set()
         all_creators: list[dict] = []
@@ -555,11 +557,11 @@ class TikTokService:
                         },
                     })
 
-        batch_size = 3 if not deep_search else 2
+        batch_size = 3
 
         async def _run_query(search_query: str) -> list[dict]:
             results = []
-            max_pages = 8 if deep_search else 1
+            max_pages = 3 if deep_search else 1
             cursor = 0
 
             for _page in range(max_pages):

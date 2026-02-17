@@ -418,7 +418,7 @@ async def search_creators(
         kw_terms = [t.strip().lower() for t in keyword_query.split(",") if t.strip()]
 
     # Timeout: 45s for normal search, 120s for deep search
-    search_timeout = 120 if deep_search else 60
+    search_timeout = 300 if deep_search else 60
 
     async def _run_platform_search():
         results = []
