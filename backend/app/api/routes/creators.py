@@ -402,12 +402,51 @@ async def search_creators(
                 continue
             creators.extend(result)
 
-    # --- Also search existing DB creators by keywords ---
+    # --- Filter: only keep accounts that look like creators ---
+    _CREATOR_SIGNALS = [
+        "ugc", "content creator", "creator", "brand partner", "brand ambassador",
+        "collab", "dm for collab", "pr friendly", "honest review", "influencer",
+        "sponsored", "freelance creator", "product review", "unboxing",
+        "reviewer", "gifted", "content creation", "she/her", "mom",
+    ]
+
+    def _has_creator_signal(c: dict) -> bool:
+        """Check name + bio for creator signals."""
+        name = (c.get("name") or "").lower()
+        bio = (c.get("bio") or "").lower()
+        text = f"{name} {bio}"
+        if c.get("platform") == "backstage":
+            return True
+        return any(sig in text for sig in _CREATOR_SIGNALS)
+
+    creators = [c for c in creators if _has_creator_signal(c)]
+
+    # --- Enforce min_followers ---
+    creators = [c for c in creators if c.get("follower_count", 0) >= min_followers]
+
+    # --- Boost keyword-relevant creators ---
     if keyword_query:
         kw_terms = [t.strip().lower() for t in keyword_query.split(",") if t.strip()]
-        db_query = select(Creator)
+        for c in creators:
+            text = f"{(c.get('name') or '')} {(c.get('bio') or '')}".lower()
+            kw_matches = sum(1 for t in kw_terms if t in text)
+            if kw_matches > 0:
+                # Boost relevance score for keyword matches
+                c["relevance_score"] = min(100, c.get("relevance_score", 0) + kw_matches * 15)
+                c["overall_score"] = min(100, c.get("overall_score", 0) + kw_matches * 10)
+
+    # --- Also search existing DB creators by keywords (bio + name) ---
+    if keyword_query:
+        kw_terms = [t.strip().lower() for t in keyword_query.split(",") if t.strip()]
+        from sqlalchemy import or_
+        kw_filters = []
         for term in kw_terms:
-            db_query = db_query.where(Creator.bio.ilike(f"%{term}%"))
+            kw_filters.append(Creator.bio.ilike(f"%{term}%"))
+            kw_filters.append(Creator.name.ilike(f"%{term}%"))
+        db_query = select(Creator).where(
+            or_(*kw_filters),
+            Creator.follower_count >= min_followers,
+        )
         db_result = await db.execute(db_query.limit(200))
         db_creators = db_result.scalars().all()
 
@@ -416,7 +455,10 @@ async def search_creators(
         for c in db_creators:
             if c.external_id not in live_ids:
                 live_ids.add(c.external_id)
-                creators.append(_creator_to_dict(c))
+                cd = _creator_to_dict(c)
+                # Only include if creator-like
+                if _has_creator_signal(cd):
+                    creators.append(cd)
 
     # --- De-duplication: only when exclude_seen is enabled ---
     if exclude_seen:
