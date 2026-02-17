@@ -21,26 +21,29 @@ _USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Edg/121.0.0.0",
 ]
 
-# Search queries in two tiers (no Twitter-style operators — plain text for TikTok)
+# Search queries — interleaved so normal search (first 8) covers both
+# broad UGC discovery AND age/demo-targeted queries.
 UGC_SEARCH_QUERIES = [
-    # --- Tier 1: Broad UGC discovery ---
+    # --- Interleaved: broad + age-targeted (first 8 always run) ---
     "UGC creator",
+    "UGC creator over 40",
     "#ugccreator",
-    "#ugccontent",
+    "UGC creator mom",
     "brand partner content creator",
+    "#genxcreator",
+    "honest review creator",
+    "midlife content creator",
+    # --- Remaining broad ---
+    "#ugccontent",
     "dm for collabs",
     "pr friendly creator",
-    "honest review creator",
     "brand ambassador creator",
     "UGC content creator",
     "#ugccommunity",
     "product review creator",
     "unboxing creator",
     "sponsored content creator",
-    # --- Tier 2: Demo-targeted (female + age signals) ---
-    "UGC creator mom",
-    "UGC creator over 40",
-    "#genxcreator",
+    # --- Remaining demo-targeted ---
     "#midlifecreator",
     "mom content creator UGC",
     "UGC creator woman",
@@ -48,14 +51,13 @@ UGC_SEARCH_QUERIES = [
     "content creator mom life",
     "UGC mama",
     "empty nester creator",
-    "midlife content creator",
+    "over 40 content creator",
+    "gen x content creator",
     "UGC creator wife",
     "#ugcmom",
     "brand partner mom",
     "product review mom",
-    "over 40 content creator",
-    "gen x content creator",
-    # --- Tier 3: Leakproof underwear niche ---
+    # --- Niche-specific ---
     "period underwear creator",
     "leak proof underwear review",
     "incontinence creator",
@@ -511,7 +513,7 @@ class TikTokService:
             queries.append(f"{niche} content creator mom")
 
         if not deep_search:
-            queries = queries[:5]
+            queries = queries[:8]
 
         seen_ids: set[str] = set()
         all_creators: list[dict] = []
@@ -635,6 +637,59 @@ class TikTokService:
                         seen_ids.add(uid)
                         all_creators.append(creator)
 
+        # Enrich creators that have empty bios with profile data.
+        # Prioritize creators whose names contain age/demo signals.
+        _AGE_SIGNALS = ["over 40", "over 50", "40+", "50+", "gen x", "genx",
+                        "midlife", "mom", "mama", "mum", "mother", "empty nester"]
+        empty_bio_creators = [
+            c for c in all_creators
+            if not c["profile"].get("bio")
+        ]
+        # Sort: age-signal names first
+        empty_bio_creators.sort(
+            key=lambda c: any(
+                sig in (c["profile"].get("fullname") or "").lower()
+                for sig in _AGE_SIGNALS
+            ),
+            reverse=True,
+        )
+        if empty_bio_creators:
+            usernames_to_enrich = [
+                c["profile"]["username"] for c in empty_bio_creators
+            ][:15]
+            try:
+                enriched = await self.enrich_profiles_batch(usernames_to_enrich)
+                for c in all_creators:
+                    username = c["profile"]["username"]
+                    if username in enriched and enriched[username].get("bio"):
+                        profile_data = enriched[username]
+                        c["profile"]["bio"] = profile_data["bio"]
+                        if profile_data.get("displayName"):
+                            c["profile"]["fullname"] = profile_data["displayName"]
+                        if profile_data.get("avatar"):
+                            c["profile"]["picture"] = profile_data["avatar"]
+                        followers_text = profile_data.get("followers", "")
+                        if followers_text:
+                            parsed = self._parse_follower_count(str(followers_text))
+                            if parsed > 0:
+                                c["profile"]["followers"] = parsed
+                        video_text = profile_data.get("videoCount", "")
+                        if video_text:
+                            parsed = self._parse_follower_count(str(video_text))
+                            if parsed > 0:
+                                c["profile"]["postCount"] = parsed
+                        # Re-infer niches from enriched bio
+                        c["profile"]["interests"] = (
+                            [niche] if niche else self._infer_niches(c["profile"]["bio"])
+                        )
+                logger.info("Enriched %d/%d user search profiles with bios",
+                            sum(1 for u in usernames_to_enrich if enriched.get(u, {}).get("bio")),
+                            len(usernames_to_enrich))
+            except asyncio.TimeoutError:
+                logger.warning("Profile enrichment timed out for user search results")
+            except Exception as e:
+                logger.warning("Profile enrichment failed: %s", e)
+
         return all_creators[:internal_cap]
 
     async def _ensure_context_warm(self) -> bool:
@@ -724,7 +779,7 @@ class TikTokService:
         """Enrich multiple profiles with controlled concurrency.
 
         Returns a dict mapping username -> profile data.
-        Caps at 20 profiles, ~15s total budget.
+        Caps at 20 profiles, 30s total budget.
         """
         usernames = usernames[:20]
         results: dict[str, dict] = {}
@@ -737,7 +792,7 @@ class TikTokService:
 
         await asyncio.wait_for(
             asyncio.gather(*[_enrich_one(u) for u in usernames], return_exceptions=True),
-            timeout=15.0,
+            timeout=30.0,
         )
         return results
 

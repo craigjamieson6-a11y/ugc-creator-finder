@@ -36,15 +36,15 @@ class EnrichmentService:
     # Keywords suggesting age ranges
     AGE_INDICATORS = {
         "40-49": [
-            "in my 40s", "40s", "over 40", "forty", "born 198",
-            "born in the 80s", "gen x", "gen-x",
+            "in my 40s", "40s", "40+", "over 40", "forty", "born 198",
+            "born in the 80s", "gen x", "gen-x", "genx",
         ],
         "45-54": [
             "born 197", "born in the 70s", "midlife", "middle age",
             "mom of teens", "teenage kids",
         ],
         "50-59": [
-            "in my 50s", "50s", "over 50", "fifty", "born 196",
+            "in my 50s", "50s", "50+", "over 50", "fifty", "born 196",
             "born in the 60s", "empty nester", "grandma", "grandmother",
             "nana", "grandkids",
         ],
