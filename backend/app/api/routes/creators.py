@@ -462,6 +462,16 @@ async def search_creators(
         logging.getLogger(__name__).warning("Search timed out after %ds", search_timeout)
         creators = []
 
+    # --- Deduplicate by external_id ---
+    seen_ext_ids: set = set()
+    unique_creators = []
+    for c in creators:
+        ext_id = c.get("external_id")
+        if ext_id and ext_id not in seen_ext_ids:
+            seen_ext_ids.add(ext_id)
+            unique_creators.append(c)
+    creators = unique_creators
+
     # --- Filter: only keep accounts that look like creators ---
     _CREATOR_SIGNALS = [
         "ugc", "content creator", "creator", "brand partner", "brand ambassador",
