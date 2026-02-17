@@ -12,6 +12,7 @@ export default function Home() {
   const [total, setTotal] = useState(0);
   const [dbTotal, setDbTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [loadingSeconds, setLoadingSeconds] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"cards" | "table">("cards");
   const [searched, setSearched] = useState(false);
@@ -47,7 +48,9 @@ export default function Home() {
 
   const handleSearch = useCallback(async (params: SearchParams) => {
     setLoading(true);
+    setLoadingSeconds(0);
     setError(null);
+    const timer = setInterval(() => setLoadingSeconds((s) => s + 1), 1000);
     try {
       const data = await searchCreators(params);
       setCreators(data.creators);
@@ -57,6 +60,7 @@ export default function Home() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Search failed");
     } finally {
+      clearInterval(timer);
       setLoading(false);
     }
   }, []);
@@ -186,6 +190,14 @@ export default function Home() {
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md mb-4">
             {error}
+          </div>
+        )}
+
+        {loading && (
+          <div className="text-center py-20">
+            <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-indigo-200 border-t-indigo-600 mb-4"></div>
+            <p className="text-lg text-gray-600">Searching creators...</p>
+            <p className="text-sm text-gray-400 mt-1">{loadingSeconds}s elapsed — this can take 15-30 seconds</p>
           </div>
         )}
 

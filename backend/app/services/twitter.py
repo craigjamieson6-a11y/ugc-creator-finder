@@ -146,14 +146,13 @@ class TwitterService:
         internal_cap = max_results if not deep_search else 500
 
         if query:
-            # Generate targeted queries — combine keywords with creator signals
-            terms = [t.strip() for t in query.split(",") if t.strip()]
+            # Generate targeted queries — limit to first 2 keyword terms
+            terms = [t.strip() for t in query.split(",") if t.strip()][:2]
             queries = []
             for term in terms:
                 queries.append(f'"{term}" (creator OR UGC OR "brand partner") -is:retweet')
-                queries.append(f'"{term}" ("content creator" OR collab OR ambassador) -is:retweet')
-            # Also include top standard UGC queries to widen the pool
-            queries.extend(UGC_SEARCH_QUERIES[:3])
+            # Add one standard UGC query
+            queries.append(UGC_SEARCH_QUERIES[0])
         else:
             queries = list(UGC_SEARCH_QUERIES)
             if niche:
@@ -233,12 +232,11 @@ class TwitterService:
         internal_cap = max_results if not deep_search else 200
 
         if query:
-            # Generate targeted queries — always combine with creator/UGC signals
-            terms = [t.strip() for t in query.split(",") if t.strip()]
+            # Generate targeted queries — limit to first 2 keyword terms
+            terms = [t.strip() for t in query.split(",") if t.strip()][:2]
             queries = []
             for term in terms:
                 queries.append(f"{term} UGC creator")
-                queries.append(f"{term} content creator")
         else:
             queries = list(NITTER_SEARCH_QUERIES)
             if niche:

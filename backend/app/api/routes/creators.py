@@ -368,39 +368,44 @@ async def search_creators(
     if keywords:
         keyword_query = keywords.strip()
 
-    if platform.lower() == "twitter":
-        creators = await _search_twitter(niche, min_followers, page_size, deep_search, keyword_query)
-        creators = await _enrich_with_cross_platform(creators)
+    # Timeout: 45s for normal search, 120s for deep search
+    search_timeout = 120 if deep_search else 45
 
-    elif platform.lower() == "tiktok":
-        if tiktok._is_configured():
-            creators = await _search_tiktok(niche, min_followers, page_size, deep_search, keyword_query)
+    async def _run_platform_search():
+        results = []
+        if platform.lower() == "twitter":
+            results = await _search_twitter(niche, min_followers, page_size, deep_search, keyword_query)
+        elif platform.lower() == "tiktok":
+            if tiktok._is_configured():
+                results = await _search_tiktok(niche, min_followers, page_size, deep_search, keyword_query)
+        elif platform.lower() == "backstage":
+            if backstage._is_configured():
+                results = await _search_backstage(
+                    niche, gender, age_min, age_max, country, page_size, deep_search,
+                )
+        elif platform.lower() == "all":
+            tasks = [_search_twitter(niche, min_followers, page_size, deep_search, keyword_query)]
+            if tiktok._is_configured():
+                tasks.append(_search_tiktok(niche, min_followers, page_size, deep_search, keyword_query))
+            if backstage._is_configured():
+                tasks.append(_search_backstage(
+                    niche, gender, age_min, age_max, country, page_size, deep_search,
+                ))
+            gather_results = await asyncio.gather(*tasks, return_exceptions=True)
+            for r in gather_results:
+                if isinstance(r, Exception):
+                    import logging
+                    logging.getLogger(__name__).warning("Platform search failed: %s", r)
+                    continue
+                results.extend(r)
+        return results
 
-    elif platform.lower() == "backstage":
-        if backstage._is_configured():
-            creators = await _search_backstage(
-                niche, gender, age_min, age_max, country, page_size, deep_search,
-            )
-
-    elif platform.lower() == "all":
-        # Search all platforms in parallel
-        tasks = [_search_twitter(niche, min_followers, page_size, deep_search, keyword_query)]
-
-        if tiktok._is_configured():
-            tasks.append(_search_tiktok(niche, min_followers, page_size, deep_search, keyword_query))
-
-        if backstage._is_configured():
-            tasks.append(_search_backstage(
-                niche, gender, age_min, age_max, country, page_size, deep_search,
-            ))
-
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                import logging
-                logging.getLogger(__name__).warning("Platform search failed: %s", result)
-                continue
-            creators.extend(result)
+    try:
+        creators = await asyncio.wait_for(_run_platform_search(), timeout=search_timeout)
+    except asyncio.TimeoutError:
+        import logging
+        logging.getLogger(__name__).warning("Search timed out after %ds", search_timeout)
+        creators = []
 
     # --- Filter: only keep accounts that look like creators ---
     _CREATOR_SIGNALS = [

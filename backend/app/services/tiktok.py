@@ -315,13 +315,13 @@ class TikTokService:
 
         if query:
             # Generate targeted queries — combine keywords with creator signals
-            terms = [t.strip() for t in query.split(",") if t.strip()]
+            # Limit to first 2 keyword terms to keep query count manageable
+            terms = [t.strip() for t in query.split(",") if t.strip()][:2]
             queries = []
             for term in terms:
                 queries.append(f"{term} UGC creator")
-                queries.append(f"{term} content creator")
-            # Also include top standard UGC queries to widen the pool
-            queries.extend(UGC_SEARCH_QUERIES[:3])
+            # Add one standard UGC query to widen the pool
+            queries.append("UGC creator")
         else:
             queries = list(UGC_SEARCH_QUERIES)
             if niche:
