@@ -29,9 +29,9 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 60
 
     # Scoring weights
-    engagement_weight: float = 0.4
-    quality_weight: float = 0.3
-    relevance_weight: float = 0.3
+    engagement_weight: float = 0.25
+    quality_weight: float = 0.25
+    relevance_weight: float = 0.50
 
     class Config:
         env_file = ".env"

@@ -37,6 +37,21 @@ function TierBadge({ tier }: { tier: string }) {
   );
 }
 
+function DemoConfidence({ confirmed }: { confirmed: boolean }) {
+  return (
+    <span
+      className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs ${
+        confirmed
+          ? "text-green-700 bg-green-50"
+          : "text-gray-500 bg-gray-100"
+      }`}
+      title={confirmed ? "Demographics confirmed" : "Demographics unconfirmed"}
+    >
+      {confirmed ? "\u2713 Confirmed" : "? Unconfirmed"}
+    </span>
+  );
+}
+
 export default function CreatorCard({ creator, onAddToCampaign }: Props) {
   return (
     <div className="bg-white rounded-lg shadow hover:shadow-md transition-shadow p-4">
@@ -54,6 +69,9 @@ export default function CreatorCard({ creator, onAddToCampaign }: Props) {
                   {creator.name}
                 </h3>
                 <TierBadge tier={creator.tier} />
+                {creator.demo_match !== undefined && (
+                  <DemoConfidence confirmed={creator.demo_match} />
+                )}
               </div>
               <p className="text-sm text-gray-500">
                 @{creator.handle} &middot;{" "}
@@ -76,6 +94,12 @@ export default function CreatorCard({ creator, onAddToCampaign }: Props) {
           <p className="text-sm text-gray-600 mt-2 line-clamp-2">
             {creator.bio}
           </p>
+
+          {creator.matched_content && (
+            <p className="text-xs text-indigo-600 mt-1 line-clamp-1 italic">
+              Matched: {creator.matched_content}
+            </p>
+          )}
 
           <div className="flex items-center gap-4 mt-3 text-sm text-gray-600">
             <span>{(creator.follower_count / 1000).toFixed(1)}K followers</span>

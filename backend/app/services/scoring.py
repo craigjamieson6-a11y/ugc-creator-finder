@@ -30,9 +30,9 @@ NICHE_KEYWORDS = [
 class ScoringService:
     def __init__(
         self,
-        engagement_weight: float = 0.4,
-        quality_weight: float = 0.3,
-        relevance_weight: float = 0.3,
+        engagement_weight: float = 0.25,
+        quality_weight: float = 0.25,
+        relevance_weight: float = 0.50,
     ):
         self.engagement_weight = engagement_weight
         self.quality_weight = quality_weight
@@ -94,11 +94,15 @@ class ScoringService:
     def calculate_relevance_score(
         self,
         bio: str = "",
-        niche_tags: list[str] | None = None,
+        niche_tags: Optional[list] = None,
         target_niche: Optional[str] = None,
-        audience_demographics: dict | None = None,
+        audience_demographics: Optional[dict] = None,
         target_age_min: int = 40,
         target_age_max: int = 60,
+        matched_content: str = "",
+        search_keywords: Optional[list] = None,
+        has_age_match: bool = False,
+        has_gender_match: bool = False,
     ) -> float:
         """Score 0-100 based on relevance to target demographic and niche."""
         score = 0.0
@@ -112,22 +116,43 @@ class ScoringService:
             "women", "lifestyle", "over 40", "over 50", "midlife",
         ]
         keyword_matches = sum(1 for kw in relevance_keywords if kw in bio_lower)
-        score += min(20, keyword_matches * 4)
+        score += min(15, keyword_matches * 3)
 
-        # Niche-specific keyword matching (leakproof underwear niche)
+        # Niche-specific keyword matching
         niche_matches = sum(1 for kw in NICHE_KEYWORDS if kw in bio_lower)
-        score += min(15, niche_matches * 5)
+        score += min(10, niche_matches * 5)
+
+        # Matched content scoring — video captions that surfaced this creator
+        if matched_content:
+            content_lower = matched_content.lower()
+            # Check search keywords against matched content
+            if search_keywords:
+                content_kw_matches = sum(
+                    1 for kw in search_keywords if kw in content_lower
+                )
+                score += min(30, content_kw_matches * 15)
+            # Also check niche keywords against matched content
+            content_niche_matches = sum(
+                1 for kw in NICHE_KEYWORDS if kw in content_lower
+            )
+            score += min(10, content_niche_matches * 5)
 
         # Niche tag matching
         if target_niche and niche_tags:
             target_lower = target_niche.lower()
             if any(target_lower in tag.lower() for tag in niche_tags):
-                score += 35
+                score += 15
             elif any(
                 any(word in tag.lower() for word in target_lower.split())
                 for tag in niche_tags
             ):
-                score += 20
+                score += 10
+
+        # Demographic match bonus
+        if has_age_match:
+            score += 15
+        if has_gender_match:
+            score += 10
 
         # Audience demographic alignment
         if audience_demographics and "ages" in audience_demographics:
@@ -135,7 +160,6 @@ class ScoringService:
             for age_bucket in audience_demographics["ages"]:
                 code = age_bucket.get("code", "")
                 weight = age_bucket.get("weight", 0)
-                # Check if age bucket overlaps with target range
                 try:
                     parts = code.replace("+", "-999").split("-")
                     bucket_min = int(parts[0])
@@ -144,7 +168,7 @@ class ScoringService:
                         target_weight += weight
                 except (ValueError, IndexError):
                     continue
-            score += min(30, target_weight * 60)
+            score += min(15, target_weight * 30)
 
         return round(min(100, max(0, score)), 1)
 

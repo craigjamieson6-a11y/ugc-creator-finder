@@ -170,6 +170,90 @@ Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
 Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
 """
 
+# JavaScript to extract creator usernames and video captions from video search results.
+# TikTok's Videos tab renders cards with a link to the video and creator info.
+_EXTRACT_VIDEO_CREATORS_JS = """() => {
+    const results = [];
+    const seen = new Set();
+
+    // Video cards contain links to individual videos and creator info
+    const cards = document.querySelectorAll('[data-e2e="search_top-item-list"] > div, [data-e2e="search-common-link"]');
+
+    // Fallback: grab all video links on the page
+    const videoLinks = cards.length > 0 ? cards : document.querySelectorAll('a[href*="/video/"]');
+
+    for (const el of videoLinks) {
+        // Find the creator username from a link like /@username
+        const userLink = el.querySelector ? el.querySelector('a[href*="/@"]') : null;
+        const videoLink = el.querySelector ? el.querySelector('a[href*="/video/"]') : el;
+        if (!userLink && !videoLink) continue;
+
+        let username = "";
+        if (userLink) {
+            const href = userLink.getAttribute("href") || "";
+            const match = href.match(/\\/@([^/?#]+)/);
+            if (match) username = match[1];
+        }
+        if (!username && videoLink) {
+            const href = videoLink.getAttribute("href") || "";
+            const match = href.match(/\\/@([^/?#/]+)/);
+            if (match) username = match[1];
+        }
+
+        if (!username || seen.has(username)) continue;
+        seen.add(username);
+
+        // Extract video caption/description text
+        let caption = "";
+        const descEl = el.querySelector ? (
+            el.querySelector('[data-e2e="search-card-desc"]') ||
+            el.querySelector('[class*="video-card-desc"]') ||
+            el.querySelector('[class*="caption"]')
+        ) : null;
+        if (descEl) {
+            caption = (descEl.innerText || "").trim();
+        }
+        // Fallback: use the full text of the card minus navigation elements
+        if (!caption && el.innerText) {
+            const lines = el.innerText.split("\\n").map(l => l.trim()).filter(l => l.length > 10);
+            caption = lines.slice(0, 3).join(" ");
+        }
+
+        results.push({ username, caption });
+    }
+    return results;
+}"""
+
+# JavaScript to extract profile data from a TikTok user profile page.
+_EXTRACT_PROFILE_JS = """() => {
+    const result = { bio: "", followers: 0, videoCount: 0, displayName: "", avatar: "" };
+
+    // Bio
+    const bioEl = document.querySelector('[data-e2e="user-bio"]');
+    if (bioEl) result.bio = (bioEl.innerText || "").trim();
+
+    // Display name
+    const nameEl = document.querySelector('[data-e2e="user-title"]') ||
+                   document.querySelector('[data-e2e="user-subtitle"]') ||
+                   document.querySelector('h1');
+    if (nameEl) result.displayName = (nameEl.innerText || "").trim();
+
+    // Follower count
+    const followerEl = document.querySelector('[data-e2e="followers-count"]');
+    if (followerEl) result.followers = (followerEl.innerText || "").trim();
+
+    // Video count
+    const videoEl = document.querySelector('[data-e2e="video-count"]');
+    if (videoEl) result.videoCount = (videoEl.innerText || "").trim();
+
+    // Avatar
+    const avatarEl = document.querySelector('[data-e2e="user-avatar"] img') ||
+                     document.querySelector('img[class*="avatar"]');
+    if (avatarEl) result.avatar = avatarEl.src || "";
+
+    return result;
+}"""
+
 
 class TikTokService:
     """Search TikTok for UGC creators using Playwright headless browser."""
@@ -287,19 +371,127 @@ class TikTokService:
     ) -> list[dict]:
         """Search TikTok for UGC creators via Playwright headless browser.
 
-        Makes multiple searches with different UGC queries to maximize
-        discovery, then deduplicates by user ID.
-
-        When deep_search=True, paginates deeper per query (8 pages vs 2).
+        When a keyword query is provided, uses video search to find creators
+        who actually post about the topic, then enriches their profiles.
+        Otherwise, falls back to user search for broad UGC discovery.
         """
         if not self._is_configured():
             return []
 
+        # When keywords are provided, use video search for niche relevance
+        if query:
+            return await self._search_via_videos(query, niche, min_followers, max_results, deep_search)
+
+        # No keywords — use traditional user search for broad UGC discovery
+        return await self._search_via_users(niche, min_followers, max_results, deep_search)
+
+    async def _search_via_videos(
+        self,
+        query: str,
+        niche: Optional[str],
+        min_followers: int,
+        max_results: int,
+        deep_search: bool,
+    ) -> list[dict]:
+        """Search TikTok videos tab and extract creators from results."""
+        # Probe to ensure browser context is warm
+        if not await self._ensure_context_warm():
+            return []
+
+        terms = [t.strip() for t in query.split(",") if t.strip()][:3]
+        video_queries = []
+        for term in terms:
+            video_queries.append(f"{term} review")
+            video_queries.append(term)
+        if niche:
+            video_queries.append(f"{niche} {terms[0]}")
+
+        seen_usernames: set[str] = set()
+        # Map username -> list of captions that surfaced them
+        creator_captions: dict[str, list[str]] = {}
+
+        batch_size = 2
+        for i in range(0, len(video_queries), batch_size):
+            if len(seen_usernames) >= max_results:
+                break
+            batch = video_queries[i:i + batch_size]
+            batch_results = await asyncio.gather(
+                *[self._run_video_search(q) for q in batch],
+                return_exceptions=True,
+            )
+            for result in batch_results:
+                if isinstance(result, Exception):
+                    logger.warning("TikTok video search failed: %s", result)
+                    continue
+                for entry in result:
+                    username = entry.get("username", "")
+                    caption = entry.get("caption", "")
+                    if username and username not in seen_usernames:
+                        seen_usernames.add(username)
+                        creator_captions[username] = [caption] if caption else []
+                    elif username and caption:
+                        creator_captions.setdefault(username, []).append(caption)
+
+        if not seen_usernames:
+            # Fallback to user search if video search yields nothing
+            return await self._search_via_users(niche, min_followers, max_results, deep_search)
+
+        # Enrich top creators with profile data (cap at 20, 3 concurrent)
+        usernames_to_enrich = list(seen_usernames)[:20]
+        enriched = await self.enrich_profiles_batch(usernames_to_enrich)
+
+        # Build creator dicts from enriched profiles
+        all_creators: list[dict] = []
+        for username in usernames_to_enrich:
+            profile_data = enriched.get(username, {})
+            bio = profile_data.get("bio", "")
+            followers_text = profile_data.get("followers", "0")
+            followers = self._parse_follower_count(str(followers_text))
+            display_name = profile_data.get("displayName", username)
+            avatar = profile_data.get("avatar", "")
+            video_count_text = profile_data.get("videoCount", "0")
+            video_count = self._parse_follower_count(str(video_count_text))
+
+            captions = creator_captions.get(username, [])
+            matched_content = " | ".join(captions[:3])
+
+            stats = {
+                "follower_count": followers,
+                "following_count": 0,
+                "heart_count": 0,
+                "video_count": video_count,
+            }
+
+            all_creators.append({
+                "userId": f"tiktok_{username}",
+                "profile": {
+                    "fullname": display_name,
+                    "username": username,
+                    "url": f"https://www.tiktok.com/@{username}",
+                    "picture": avatar,
+                    "bio": bio,
+                    "followers": followers,
+                    "following": 0,
+                    "engagementRate": self._estimate_engagement_rate(stats),
+                    "postCount": video_count,
+                    "interests": [niche] if niche else self._infer_niches(bio),
+                    "matchedContent": matched_content,
+                },
+            })
+
+        return all_creators[:max_results]
+
+    async def _search_via_users(
+        self,
+        niche: Optional[str],
+        min_followers: int,
+        max_results: int,
+        deep_search: bool,
+    ) -> list[dict]:
+        """Original user search logic for broad UGC discovery."""
         # Probe TikTok with a single quick request first.
-        # If it fails, reset the browser context and try once more.
         probe_users, _, _ = await self._run_user_search("UGC creator", cursor=0)
         if not probe_users:
-            # Context may be stale — reset and retry once
             logger.info("TikTok probe failed, resetting browser context and retrying")
             if self._context:
                 try:
@@ -313,30 +505,18 @@ class TikTokService:
 
         internal_cap = max_results if not deep_search else 500
 
-        if query:
-            # Generate targeted queries — combine keywords with creator signals
-            # Limit to first 2 keyword terms to keep query count manageable
-            terms = [t.strip() for t in query.split(",") if t.strip()][:2]
-            queries = []
-            for term in terms:
-                queries.append(f"{term} UGC creator")
-            # Add one standard UGC query to widen the pool
-            queries.append("UGC creator")
-        else:
-            queries = list(UGC_SEARCH_QUERIES)
-            if niche:
-                queries.append(f"{niche} UGC creator")
-                queries.append(f"{niche} content creator mom")
+        queries = list(UGC_SEARCH_QUERIES)
+        if niche:
+            queries.append(f"{niche} UGC creator")
+            queries.append(f"{niche} content creator mom")
 
-            # For normal search, limit to first 5 queries (Tier 1 broad)
-            # Deep search uses all queries for maximum coverage
-            if not deep_search:
-                queries = queries[:5]
+        if not deep_search:
+            queries = queries[:5]
 
         seen_ids: set[str] = set()
         all_creators: list[dict] = []
 
-        # Process probe results so we don't waste them
+        # Process probe results
         for user_entry in probe_users:
             user_info = user_entry.get("user_info", {})
             stats = user_entry.get("stats", {})
@@ -373,11 +553,9 @@ class TikTokService:
                         },
                     })
 
-        # Run queries in concurrent batches for speed
         batch_size = 3 if not deep_search else 2
 
         async def _run_query(search_query: str) -> list[dict]:
-            """Run a single query with pagination, return creator list."""
             results = []
             max_pages = 8 if deep_search else 1
             cursor = 0
@@ -437,7 +615,6 @@ class TikTokService:
 
             return results
 
-        # Process queries in batches
         for i in range(0, len(queries), batch_size):
             if len(all_creators) >= internal_cap:
                 break
@@ -459,6 +636,110 @@ class TikTokService:
                         all_creators.append(creator)
 
         return all_creators[:internal_cap]
+
+    async def _ensure_context_warm(self) -> bool:
+        """Make sure browser context is warm, return True if ready."""
+        try:
+            context = await self._get_context()
+            return context is not None
+        except Exception as e:
+            logger.warning("Failed to warm context: %s", e)
+            return False
+
+    async def _run_video_search(self, search_query: str) -> list[dict]:
+        """Navigate to TikTok video search tab and extract creator usernames + captions."""
+        try:
+            context = await self._get_context()
+        except Exception as e:
+            logger.warning("Could not get browser context for video search: %s", e)
+            return []
+
+        page = None
+        try:
+            page = await context.new_page()
+            await page.add_init_script(_STEALTH_JS)
+
+            url = f"https://www.tiktok.com/search?q={quote(search_query)}"
+            await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+
+            # Wait for video results to appear
+            try:
+                await page.wait_for_selector('a[href*="/video/"], a[href*="/@"]', timeout=10000)
+            except Exception:
+                logger.info("No video results found for query: %s", search_query)
+                return []
+
+            await asyncio.sleep(1.5)
+
+            # Scroll to load more results
+            for _ in range(3):
+                await page.evaluate("window.scrollBy(0, document.body.scrollHeight)")
+                await asyncio.sleep(0.5)
+
+            raw_results = await page.evaluate(_EXTRACT_VIDEO_CREATORS_JS)
+            logger.info("Video search '%s': found %d creators", search_query, len(raw_results))
+            return raw_results
+
+        except Exception as e:
+            logger.warning("TikTok video search failed for '%s': %s", search_query, e)
+            return []
+        finally:
+            if page:
+                await page.close()
+
+    async def enrich_profile(self, username: str) -> dict:
+        """Visit a TikTok profile page and scrape bio, follower count, etc."""
+        try:
+            context = await self._get_context()
+        except Exception as e:
+            logger.warning("Could not get browser context for profile enrichment: %s", e)
+            return {}
+
+        page = None
+        try:
+            page = await context.new_page()
+            await page.add_init_script(_STEALTH_JS)
+
+            url = f"https://www.tiktok.com/@{quote(username)}"
+            await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+
+            try:
+                await page.wait_for_selector('[data-e2e="user-bio"], h1, [data-e2e="user-title"]', timeout=8000)
+            except Exception:
+                pass
+
+            await asyncio.sleep(1.0)
+
+            profile_data = await page.evaluate(_EXTRACT_PROFILE_JS)
+            return profile_data
+
+        except Exception as e:
+            logger.warning("Profile enrichment failed for @%s: %s", username, e)
+            return {}
+        finally:
+            if page:
+                await page.close()
+
+    async def enrich_profiles_batch(self, usernames: list[str], max_concurrent: int = 3) -> dict[str, dict]:
+        """Enrich multiple profiles with controlled concurrency.
+
+        Returns a dict mapping username -> profile data.
+        Caps at 20 profiles, ~15s total budget.
+        """
+        usernames = usernames[:20]
+        results: dict[str, dict] = {}
+        semaphore = asyncio.Semaphore(max_concurrent)
+
+        async def _enrich_one(uname: str):
+            async with semaphore:
+                data = await self.enrich_profile(uname)
+                results[uname] = data
+
+        await asyncio.wait_for(
+            asyncio.gather(*[_enrich_one(u) for u in usernames], return_exceptions=True),
+            timeout=15.0,
+        )
+        return results
 
     async def _run_user_search(
         self, search_query: str, cursor: int = 0,

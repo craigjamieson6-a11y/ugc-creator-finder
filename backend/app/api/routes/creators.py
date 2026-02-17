@@ -122,7 +122,14 @@ async def _search_twitter(
     return [_parse_twitter_creator(c, niche) for c in raw_creators]
 
 
-def _parse_tiktok_creator(raw: dict, target_niche: Optional[str] = None) -> dict:
+def _parse_tiktok_creator(
+    raw: dict,
+    target_niche: Optional[str] = None,
+    search_keywords: Optional[list] = None,
+    target_gender: Optional[str] = None,
+    target_age_min: int = 40,
+    target_age_max: int = 60,
+) -> dict:
     """Parse a TikTok creator into standardized format."""
     profile = raw.get("profile", {})
     bio = profile.get("bio", "")
@@ -131,13 +138,36 @@ def _parse_tiktok_creator(raw: dict, target_niche: Optional[str] = None) -> dict
     followers = profile.get("followers", 0)
     niche_tags = profile.get("interests", [])
     post_count = profile.get("postCount", 0)
+    matched_content = profile.get("matchedContent", "")
 
     demographics = enrichment.enrich_creator_demographics(bio, name=name)
     country = _infer_country(bio)
 
+    # Determine demographic matches for scoring bonus
+    has_gender_match = False
+    if target_gender and demographics.get("gender"):
+        has_gender_match = demographics["gender"].lower() == target_gender.lower()
+
+    has_age_match = False
+    age_range = demographics.get("age_range")
+    if age_range:
+        try:
+            parts = age_range.replace("+", "-999").split("-")
+            lo = int(parts[0])
+            hi = int(parts[1]) if len(parts) > 1 else lo + 9
+            has_age_match = lo <= target_age_max and hi >= target_age_min
+        except (ValueError, IndexError):
+            pass
+
     engagement_score = scoring.calculate_engagement_score(engagement_rate, "tiktok")
     quality_score = scoring.calculate_quality_score(followers, engagement_rate, post_count)
-    relevance_score = scoring.calculate_relevance_score(bio, niche_tags, target_niche)
+    relevance_score = scoring.calculate_relevance_score(
+        bio, niche_tags, target_niche,
+        matched_content=matched_content,
+        search_keywords=search_keywords,
+        has_age_match=has_age_match,
+        has_gender_match=has_gender_match,
+    )
     overall_score = scoring.calculate_overall_score(engagement_score, quality_score, relevance_score)
     tier = scoring.classify_tier(followers, post_count, engagement_rate)
 
@@ -152,7 +182,7 @@ def _parse_tiktok_creator(raw: dict, target_niche: Optional[str] = None) -> dict
         "engagement_rate": engagement_rate,
         "bio": bio,
         "niche_tags": niche_tags,
-        "estimated_age_range": demographics.get("age_range"),
+        "estimated_age_range": age_range,
         "gender": demographics.get("gender"),
         "demographic_confidence": demographics.get("age_confidence", "low"),
         "engagement_score": engagement_score,
@@ -162,6 +192,7 @@ def _parse_tiktok_creator(raw: dict, target_niche: Optional[str] = None) -> dict
         "tier": tier,
         "country": country,
         "post_count": post_count,
+        "matched_content": matched_content,
     }
 
 
@@ -171,6 +202,9 @@ async def _search_tiktok(
     page_size: int,
     deep_search: bool = False,
     keyword_query: Optional[str] = None,
+    gender: Optional[str] = None,
+    age_min: int = 40,
+    age_max: int = 60,
 ) -> list[dict]:
     """Search TikTok and parse results into standardized creator dicts."""
     raw_creators = await tiktok.search_creators(
@@ -180,7 +214,19 @@ async def _search_tiktok(
         max_results=page_size,
         deep_search=deep_search,
     )
-    return [_parse_tiktok_creator(c, niche) for c in raw_creators]
+    search_keywords = None
+    if keyword_query:
+        search_keywords = [t.strip().lower() for t in keyword_query.split(",") if t.strip()]
+    return [
+        _parse_tiktok_creator(
+            c, niche,
+            search_keywords=search_keywords,
+            target_gender=gender,
+            target_age_min=age_min,
+            target_age_max=age_max,
+        )
+        for c in raw_creators
+    ]
 
 
 def _parse_backstage_creator(raw: dict, target_niche: Optional[str] = None) -> dict:
@@ -300,6 +346,7 @@ def _creator_to_dict(creator: Creator) -> dict:
         "relevance_score": creator.relevance_score,
         "tier": creator.tier,
         "country": creator.country,
+        "matched_content": creator.matched_content or "",
         "last_updated": creator.last_updated,
     }
 
@@ -353,7 +400,7 @@ async def search_creators(
     age_min: int = Query(40, description="Minimum age"),
     age_max: int = Query(60, description="Maximum age"),
     country: Optional[str] = Query(None, description="Country filter (US, UK, CA, AU, DE, etc.)"),
-    strict_demo: bool = Query(False, description="Only include creators with confirmed age/gender"),
+    demo_mode: str = Query("penalized", description="Demographics mode: strict | penalized | lenient"),
     sort_by: str = Query("overall_score", description="Sort field"),
     page: int = Query(0, ge=0),
     page_size: int = Query(20, ge=1, le=500),
@@ -365,11 +412,13 @@ async def search_creators(
 
     # Build keyword-based queries for platform services
     keyword_query = None
+    kw_terms = []
     if keywords:
         keyword_query = keywords.strip()
+        kw_terms = [t.strip().lower() for t in keyword_query.split(",") if t.strip()]
 
     # Timeout: 45s for normal search, 120s for deep search
-    search_timeout = 120 if deep_search else 45
+    search_timeout = 120 if deep_search else 60
 
     async def _run_platform_search():
         results = []
@@ -377,7 +426,10 @@ async def search_creators(
             results = await _search_twitter(niche, min_followers, page_size, deep_search, keyword_query)
         elif platform.lower() == "tiktok":
             if tiktok._is_configured():
-                results = await _search_tiktok(niche, min_followers, page_size, deep_search, keyword_query)
+                results = await _search_tiktok(
+                    niche, min_followers, page_size, deep_search, keyword_query,
+                    gender=gender, age_min=age_min, age_max=age_max,
+                )
         elif platform.lower() == "backstage":
             if backstage._is_configured():
                 results = await _search_backstage(
@@ -386,7 +438,10 @@ async def search_creators(
         elif platform.lower() == "all":
             tasks = [_search_twitter(niche, min_followers, page_size, deep_search, keyword_query)]
             if tiktok._is_configured():
-                tasks.append(_search_tiktok(niche, min_followers, page_size, deep_search, keyword_query))
+                tasks.append(_search_tiktok(
+                    niche, min_followers, page_size, deep_search, keyword_query,
+                    gender=gender, age_min=age_min, age_max=age_max,
+                ))
             if backstage._is_configured():
                 tasks.append(_search_backstage(
                     niche, gender, age_min, age_max, country, page_size, deep_search,
@@ -416,11 +471,15 @@ async def search_creators(
     ]
 
     def _has_creator_signal(c: dict) -> bool:
-        """Check name + bio for creator signals."""
+        """Check name + bio + matched_content for creator signals."""
         name = (c.get("name") or "").lower()
         bio = (c.get("bio") or "").lower()
-        text = f"{name} {bio}"
+        matched = (c.get("matched_content") or "").lower()
+        text = f"{name} {bio} {matched}"
         if c.get("platform") == "backstage":
+            return True
+        # Creators found via video search are inherently relevant
+        if matched:
             return True
         return any(sig in text for sig in _CREATOR_SIGNALS)
 
@@ -429,25 +488,22 @@ async def search_creators(
     # --- Enforce min_followers ---
     creators = [c for c in creators if c.get("follower_count", 0) >= min_followers]
 
-    # --- Boost keyword-relevant creators ---
-    if keyword_query:
-        kw_terms = [t.strip().lower() for t in keyword_query.split(",") if t.strip()]
-        for c in creators:
-            text = f"{(c.get('name') or '')} {(c.get('bio') or '')}".lower()
-            kw_matches = sum(1 for t in kw_terms if t in text)
-            if kw_matches > 0:
-                # Boost relevance score for keyword matches
-                c["relevance_score"] = min(100, c.get("relevance_score", 0) + kw_matches * 15)
-                c["overall_score"] = min(100, c.get("overall_score", 0) + kw_matches * 10)
+    # --- Keyword filtering: when keywords provided, require a match ---
+    if kw_terms:
+        def _matches_keywords(c: dict) -> bool:
+            text = f"{(c.get('name') or '')} {(c.get('bio') or '')} {(c.get('matched_content') or '')}".lower()
+            return any(t in text for t in kw_terms)
 
-    # --- Also search existing DB creators by keywords (bio + name) ---
+        creators = [c for c in creators if _matches_keywords(c)]
+
+    # --- Also search existing DB creators by keywords (bio + name + matched_content) ---
     if keyword_query:
-        kw_terms = [t.strip().lower() for t in keyword_query.split(",") if t.strip()]
         from sqlalchemy import or_
         kw_filters = []
         for term in kw_terms:
             kw_filters.append(Creator.bio.ilike(f"%{term}%"))
             kw_filters.append(Creator.name.ilike(f"%{term}%"))
+            kw_filters.append(Creator.matched_content.ilike(f"%{term}%"))
         db_query = select(Creator).where(
             or_(*kw_filters),
             Creator.follower_count >= min_followers,
@@ -461,7 +517,6 @@ async def search_creators(
             if c.external_id not in live_ids:
                 live_ids.add(c.external_id)
                 cd = _creator_to_dict(c)
-                # Only include if creator-like
                 if _has_creator_signal(cd):
                     creators.append(cd)
 
@@ -483,14 +538,13 @@ async def search_creators(
 
     # --- Filter by gender ---
     if gender:
-        if strict_demo:
-            # Strict: only include confirmed matching gender
+        if demo_mode == "strict":
             creators = [
                 c for c in creators
                 if (c.get("gender") or "").lower() == gender.lower()
             ]
         else:
-            # Lenient: include unknown gender (don't discard undetected)
+            # penalized + lenient both include unknowns at this stage
             creators = [
                 c for c in creators
                 if c.get("gender") is None
@@ -511,9 +565,29 @@ async def search_creators(
             except (ValueError, IndexError):
                 filtered.append(c)
         else:
-            # No age data: include only in lenient mode
-            if not strict_demo:
+            # No age data: exclude only in strict mode
+            if demo_mode != "strict":
                 filtered.append(c)
+
+    # --- Penalized demo mode: downrank creators with unknown demographics ---
+    if demo_mode == "penalized":
+        for c in filtered:
+            penalty = 0
+            if gender and c.get("gender") is None:
+                penalty += 15
+            if c.get("estimated_age_range") is None:
+                penalty += 15
+            if penalty > 0:
+                c["overall_score"] = max(0, c.get("overall_score", 0) - penalty)
+                c["relevance_score"] = max(0, c.get("relevance_score", 0) - penalty)
+
+    # --- Add demo_match flag to each creator ---
+    for c in filtered:
+        gender_confirmed = c.get("gender") is not None
+        age_confirmed = c.get("estimated_age_range") is not None
+        gender_ok = not gender or (gender_confirmed and (c.get("gender") or "").lower() == gender.lower())
+        age_ok = not (age_min or age_max) or age_confirmed
+        c["demo_match"] = gender_ok and age_ok
 
     # --- Filter by country ---
     if country:
@@ -528,7 +602,7 @@ async def search_creators(
     filtered.sort(key=lambda x: x.get(sort_by, 0), reverse=True)
 
     # --- Save/update creators in DB ---
-    skip_keys = {"cross_platform_profiles", "post_count"}
+    skip_keys = {"cross_platform_profiles", "post_count", "demo_match"}
     for c in filtered:
         existing = await db.execute(
             select(Creator).where(Creator.external_id == c["external_id"])

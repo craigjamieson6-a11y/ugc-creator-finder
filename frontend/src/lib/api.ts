@@ -27,6 +27,8 @@ export interface Creator {
   relevance_score: number;
   tier: string;
   country: string | null;
+  matched_content?: string;
+  demo_match?: boolean;
   last_updated?: string;
 }
 
@@ -50,7 +52,7 @@ export interface SearchParams {
   age_min?: number;
   age_max?: number;
   country?: string;
-  strict_demo?: boolean;
+  demo_mode?: string;
   sort_by?: string;
   page?: number;
   page_size?: number;

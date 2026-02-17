@@ -36,6 +36,8 @@ class Creator(Base):
     relevance_score = Column(Float, default=0.0)
     demographic_confidence = Column(String, default="low")  # high/medium/low
 
+    matched_content = Column(Text, default="")  # Video caption / content that surfaced this creator
+
     tier = Column(String, default="emerging")  # "established" or "emerging"
     country = Column(String)  # ISO-like code or country name inferred from bio/location
 
